@@ -77,7 +77,7 @@ libxposed API 102.0.0 从 Maven Central 下载，仅用于编译，不打包进 
 
 模块不申请额外 Android 权限，不发起网络请求，不保存或上报按键。模块只记录载入、目标版本和错误日志；游戏助手自身的网络和日志行为不受本模块控制。
 
-源码尚未指定开源许可证；公开可查看源码不等于获得额外复用或再分发许可。
+本项目采用 [MIT License](https://github.com/FFDVDGD/oplus-keymap-anywhere/blob/main/LICENSE)，允许商用、修改和再分发，须保留版权与许可声明；软件按「原样」提供，不作担保。第三方依赖仍遵循各自的许可证。
 
 ## LSPosed 官方模块目录准备
 
