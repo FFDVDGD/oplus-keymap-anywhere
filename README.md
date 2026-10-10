@@ -1,23 +1,24 @@
 # OPlus KeyMap Anywhere
 
-Unlock OPlus Game Assistant's built-in keyboard/mouse mapping for non-official full keyboards, including scrcpy UHID. Requires modern libxposed API 102. Currently supports **Game Assistant 10.34.21 (versionCode 500340021) only**; other versions are left unchanged.
+Unlock OPlus Game Assistant's built-in keyboard/mouse mapping for non-official full keyboards, including scrcpy UHID. Requires modern libxposed API 102. **Tested on Game Assistant 10.34.21 (versionCode 500340021)**. There is no hard version lock; other versions are attempted when the target class and method signature match, but have not been tested.
 
 [Source](https://github.com/FFDVDGD/oplus-keymap-anywhere) · [Download APK](https://github.com/FFDVDGD/oplus-keymap-anywhere/releases/latest) · [Report an issue](https://github.com/FFDVDGD/oplus-keymap-anywhere/issues)
 
 LSPosed 模块，解除 OPlus / 一加游戏助手内置「键鼠映射」的官方键盘厂商限制。
 只作用于 `com.oplus.games`，不修改系统 APK、游戏 APK 或系统输入服务。
-使用现代 libxposed API 102，以 `staticScope=true` 将可选作用域限制为游戏助手；不能额外勾选系统框架或其他应用。模块仍保留包名、主进程和游戏助手版本检查。
+使用现代 libxposed API 102，以 `staticScope=true` 将可选作用域限制为游戏助手；不能额外勾选系统框架或其他应用。模块仍保留包名、主进程和完整键盘检查，游戏助手版本号只用于日志。
 公开版包名为 `io.github.ffdvdgd.opluskeymap`，不是 OPlus、OnePlus 或 OPPO 的官方产品。
 
 ## 支持范围
 
-- 针对 OPD2413 上游戏助手 **10.34.21，versionCode 500340021** 制作。
+- 已实测 OPD2413 上游戏助手 **10.34.21，versionCode 500340021**，不按版本号限制启用。
 - 原版要求厂商 ID 为 `0x22D9` 或云端白名单中的值；模块让其他厂商的完整外接键盘也通过同一检查。
 - USB、蓝牙和 UHID 键盘必须被 Android 识别为非虚拟的完整键盘。
 - 此系统把 scrcpy UHID 标记为内部设备。模块只在游戏助手进程内，将非虚拟的完整键盘视为外接键盘；不修改系统或游戏进程中的判断。其他内置完整键盘也会通过。
 - 手写笔、音量键、SDK 虚拟键盘和无键盘连接的状态不会被当作完整键盘。
 - 不解除游戏支持列表等其他限制，不保证所有游戏或所有硬件都可用。
-- 游戏助手升级到其他版本时自动不应用修改；需要重新确认混淆类和方法，不能直接放宽版本检查。
+- 游戏助手更新后，仍匹配 `com.oplus.games.feature.keymousemapping.c.i(InputDevice): boolean` 就尝试启用；类或方法缺失、返回类型变化时记录日志，不启用键盘修改。不扫描或猜测替代方法。
+- 方法签名相同不代表语义永远相同；其他游戏助手版本尚未实测，发生不兼容时需要适配模块。
 
 ## 安装和撤销
 
@@ -51,7 +52,7 @@ UHID 支持 ADB 无线连接。首次使用可在 Android 的「实体键盘」�
 OPD2413，Android 16 / OPlus 16.1，LSPosed IT 2.2.1-it (7920)，scrcpy 5.0.1，无线 ADB：
 
 - 公开包 `io.github.ffdvdgd.opluskeymap` 已实机安装、启用并在游戏助手中载入；旧测试模块已停用，公开包的输入过滤器正常启用。
-- 模块 1.1 被识别为 API 102；作用域页提示「模块声明了静态作用域」，只显示游戏助手。新版已实际载入，scrcpy UHID 映射覆盖层和输入过滤器仍正常启用。
+- 模块 1.2 被识别为 API 102；作用域页提示「模块声明了静态作用域」，只显示游戏助手。去掉版本限制后已实际载入，scrcpy UHID 的输入过滤器仍正常启用。
 - scrcpy UHID 的厂商 ID 为 `0`、`KeyboardType: 2`、`IsExternal: false`；只去掉厂商限制仍会被拒绝。
 - 加上游戏助手进程内的外接判断适配后，《绝区零》内可打开原生键鼠映射编辑面板。
 - 启用映射后，系统显示 `InputFilterEnabled: true`，游戏助手收到 `KEYCODE_MINUS` / `KEYCODE_EQUALS` 的按下和松开事件。
@@ -87,6 +88,6 @@ libxposed API 102.0.0 从 Maven Central 下载，仅用于编译，不打包进 
 - 官方目录仓库名：`Xposed-Modules-Repo/io.github.ffdvdgd.opluskeymap`，由官方申请流程创建并邀请作者维护。
 - 目录仓库描述：`OPlus KeyMap Anywhere`；主页/支持链接使用本项目 GitHub 地址。
 - 目录仓库只复制 `README.md` 和 `SUMMARY`，不要把源码仓库整体转移过去。
-- 发布标题：`1.1`；标签：`2-1.1`（versionCode-versionName）；附 APK，发布说明使用对应的 [changelog](https://github.com/FFDVDGD/oplus-keymap-anywhere/blob/main/CHANGELOG.md)。
+- 发布标题使用 versionName，标签使用 `<versionCode>-<versionName>`（本版为 `3-1.2`）；附 APK，发布说明使用对应的 [changelog](https://github.com/FFDVDGD/oplus-keymap-anywhere/blob/main/CHANGELOG.md)。
 
 公开要求允许现代 libxposed API 102 和静态作用域，不要求单独的图标或许可证文件。资料符合提交格式不等于承诺收录；兼容范围和未验证项仍须保持上述说明。

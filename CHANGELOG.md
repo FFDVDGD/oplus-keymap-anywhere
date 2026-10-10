@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2
+
+- Remove the exact Game Assistant version-code gate; attempt the hooks on other versions when the target class and method signature still match.
+- Leave keyboard behavior unchanged if the target class or method is missing, or the keyboard check no longer returns boolean. Do not scan for replacement methods.
+- Keep the package, main-process, static-scope and attached-full-keyboard restrictions.
+- Game Assistant 10.34.21 remains the only tested version; matching an obfuscated method signature does not guarantee unchanged semantics on future versions.
+
 ## 1.1 — first public release
 
 - Remove the official-keyboard vendor restriction from OPlus Game Assistant 10.34.21 (versionCode 500340021).

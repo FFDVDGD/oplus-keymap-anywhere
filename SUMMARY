@@ -1,1 +1,1 @@
-Unlock OPlus Game Assistant's built-in key mapping for non-official full keyboards, including scrcpy UHID. Requires modern libxposed API 102; currently supports Game Assistant 10.34.21 only.
+Unlock OPlus Game Assistant's built-in key mapping for non-official full keyboards, including scrcpy UHID. Requires modern libxposed API 102; no hard version lock. Tested on Game Assistant 10.34.21.

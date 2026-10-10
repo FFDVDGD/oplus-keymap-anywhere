@@ -11,7 +11,6 @@ import io.github.libxposed.api.XposedModule;
 
 public final class KeyboardHook extends XposedModule {
     private static final String TARGET = "com.oplus.games";
-    private static final long SUPPORTED_VERSION = 500340021L;
 
     @Override
     public void onPackageReady(PackageReadyParam pkg) {
@@ -27,16 +26,15 @@ public final class KeyboardHook extends XposedModule {
                 try {
                     long version = context.getPackageManager()
                             .getPackageInfo(TARGET, 0).getLongVersionCode();
-                    if (version != SUPPORTED_VERSION) {
-                        log(Log.INFO, "GameHubKeyboard", "unsupported version " + version
-                                + "; no changes applied");
-                        return result;
-                    }
-
                     Class<?> manager = pkg.getClassLoader().loadClass(
                             "com.oplus.games.feature.keymousemapping.c");
                     Method official = manager.getDeclaredMethod("i", InputDevice.class);
                     Method external = InputDevice.class.getDeclaredMethod("isExternal");
+                    if (official.getReturnType() != boolean.class) {
+                        log(Log.WARN, "GameHubKeyboard", "keyboard check is not boolean in version "
+                                + version + "; no changes applied");
+                        return result;
+                    }
                     hook(official).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(check -> {
                         Object original = check.proceed();
                         InputDevice device = (InputDevice) check.getArg(0);
