@@ -78,9 +78,9 @@ Run "$tools\aapt2.exe" @('compile', '--dir', "$PSScriptRoot\src\main\res",
     '-o', "$build\resources.zip")
 Run "$tools\aapt2.exe" @('link', '-I', $androidJar,
     '--manifest', "$PSScriptRoot\src\main\AndroidManifest.xml",
-    '-A', "$PSScriptRoot\src\main\assets",
     '-o', "$build\unsigned.apk", "$build\resources.zip")
 Run "$Jdk\bin\jar.exe" @('uf', "$build\unsigned.apk", '-C', $build, 'classes.dex',
+    '-C', "$PSScriptRoot\src\main", 'assets',
     '-C', "$PSScriptRoot\src\main\resources", 'META-INF')
 Run "$tools\zipalign.exe" @('-f', '4', "$build\unsigned.apk", "$build\aligned.apk")
 
