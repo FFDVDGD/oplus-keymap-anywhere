@@ -53,6 +53,7 @@ public final class KeyboardHook extends XposedModule {
                 } catch (Throwable error) {
                     log(Log.ERROR, "GameHubKeyboard", "hook not installed", error);
                 }
+                MouseIdleHook.install(this, pkg.getClassLoader(), context);
                 return result;
             });
         } catch (Throwable error) {
