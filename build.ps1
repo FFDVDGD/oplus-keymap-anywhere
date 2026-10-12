@@ -31,6 +31,9 @@ $scratch = Join-Path $PSScriptRoot '.amp\in'
 $build = Join-Path $scratch 'build'
 $deps = Join-Path $scratch 'deps'
 $output = Join-Path $PSScriptRoot 'dist'
+if (Test-Path "$build\classes") {
+    Remove-Item -LiteralPath "$build\classes" -Recurse -Force
+}
 New-Item -ItemType Directory -Force $build, "$build\classes", $deps, $output | Out-Null
 
 $api = Join-Path $deps 'libxposed-api-102.0.0.jar'
@@ -46,18 +49,36 @@ if (!(Test-Path $api)) {
         $archive.Dispose()
     }
 }
+$runtime = @()
+foreach ($name in @('service', 'interface')) {
+    $jar = Join-Path $deps "libxposed-$name-102.0.0.jar"
+    if (!(Test-Path $jar)) {
+        $aar = Join-Path $deps "libxposed-$name-102.0.0.aar"
+        Invoke-WebRequest "https://repo.maven.apache.org/maven2/io/github/libxposed/$name/102.0.0/$name-102.0.0.aar" -OutFile $aar
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($aar)
+        try {
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile(
+                $archive.GetEntry('classes.jar'), $jar, $true)
+        } finally {
+            $archive.Dispose()
+        }
+    }
+    $runtime += $jar
+}
 $sources = @(Get-ChildItem "$PSScriptRoot\src\main\java" -Recurse -Filter '*.java' |
     ForEach-Object FullName)
 Run "$Jdk\bin\javac.exe" (@('--release', '8', '-encoding', 'UTF-8',
-    '-classpath', "$androidJar;$api", '-d', "$build\classes") + $sources)
+    '-classpath', "$androidJar;$api;$($runtime -join ';')", '-d', "$build\classes") + $sources)
 Run "$Jdk\bin\jar.exe" @('cf', "$build\classes.jar", '-C', "$build\classes", '.')
-Run $java @('-cp', "$tools\lib\d8.jar", 'com.android.tools.r8.D8',
+Run $java (@('-cp', "$tools\lib\d8.jar", 'com.android.tools.r8.D8',
     '--min-api', '30', '--lib', $androidJar, '--classpath', $api,
-    '--output', $build, "$build\classes.jar")
+    '--output', $build, "$build\classes.jar") + $runtime)
 Run "$tools\aapt2.exe" @('compile', '--dir', "$PSScriptRoot\src\main\res",
     '-o', "$build\resources.zip")
 Run "$tools\aapt2.exe" @('link', '-I', $androidJar,
     '--manifest', "$PSScriptRoot\src\main\AndroidManifest.xml",
+    '-A', "$PSScriptRoot\src\main\assets",
     '-o', "$build\unsigned.apk", "$build\resources.zip")
 Run "$Jdk\bin\jar.exe" @('uf', "$build\unsigned.apk", '-C', $build, 'classes.dex',
     '-C', "$PSScriptRoot\src\main\resources", 'META-INF')
@@ -72,8 +93,14 @@ if (!(Test-Path $key)) {
         '-dname', 'CN=GameHub Keyboard Local Development')
 }
 $apk = Join-Path $output 'oplus-keymap-anywhere.apk'
+$signed = Join-Path $build 'signed.apk'
+if (Test-Path $signed) {
+    Remove-Item -LiteralPath $signed -Force
+}
 Run $java @('-jar', "$tools\lib\apksigner.jar", 'sign', '--ks', $key,
     '--ks-key-alias', 'gamehub', '--ks-pass', 'pass:android',
-    '--key-pass', 'pass:android', '--out', $apk, "$build\aligned.apk")
+    '--key-pass', 'pass:android', '--out', $signed, "$build\aligned.apk")
+Run $java @('-jar', "$tools\lib\apksigner.jar", 'verify', '--verbose', $signed)
+Copy-Item -LiteralPath $signed -Destination $apk -Force
 Run $java @('-jar', "$tools\lib\apksigner.jar", 'verify', '--verbose', $apk)
 Write-Host "Built $apk"
