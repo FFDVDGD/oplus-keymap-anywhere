@@ -1,6 +1,10 @@
 package io.github.ffdvdgd.opluskeymap;
 
+import android.app.Activity;
 import android.app.Application;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
@@ -17,6 +21,8 @@ import io.github.libxposed.service.XposedServiceHelper;
 public final class SettingsApp extends Application {
     static final String GROUP = "mouse_move";
     static final String GAMES = "games";
+    static final String RESET_TOUCHES = "io.github.ffdvdgd.opluskeymap.RESET_TOUCHES";
+    static final String RESET_PERMISSION = "io.github.ffdvdgd.opluskeymap.permission.RESET_TOUCHES";
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService writer = Executors.newSingleThreadExecutor();
@@ -73,6 +79,21 @@ public final class SettingsApp extends Application {
 
     void removeObserver(Runnable observer) {
         observers.remove(observer);
+    }
+
+    void resetTouches(Consumer<Integer> completion) {
+        inputAction(RESET_TOUCHES, completion);
+    }
+
+    private void inputAction(String action, Consumer<Integer> completion) {
+        // The default result means no live hook answered, not a successful reset.
+        sendOrderedBroadcast(new Intent(action).setPackage("com.oplus.games"), null,
+                new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context context, Intent intent) {
+                        completion.accept(getResultCode());
+                    }
+                }, main, Activity.RESULT_CANCELED, null, null);
     }
 
     void save(Set<String> games, Consumer<Boolean> completion) {

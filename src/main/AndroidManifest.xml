@@ -4,6 +4,9 @@
     android:versionCode="3"
     android:versionName="1.2">
     <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="36" />
+    <permission android:name="io.github.ffdvdgd.opluskeymap.permission.RESET_TOUCHES"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="io.github.ffdvdgd.opluskeymap.permission.RESET_TOUCHES" />
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />

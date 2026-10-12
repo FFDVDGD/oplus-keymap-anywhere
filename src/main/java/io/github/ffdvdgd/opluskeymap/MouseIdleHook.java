@@ -1,19 +1,30 @@
 package io.github.ffdvdgd.opluskeymap;
 
+import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.graphics.PointF;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
+import android.view.MotionEvent;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.CancellationException;
+import java.util.function.IntConsumer;
 
 import io.github.libxposed.api.XposedInterface;
 
@@ -190,6 +201,122 @@ final class MouseIdleHook {
             installed = true;
         }
         xposed.log(Log.INFO, TAG, "500 ms hooks installed; initial 20+80 ms task unchanged");
+        try {
+            installTouchReset(context, loader, touch, contact);
+        } catch (Throwable error) {
+            xposed.log(Log.ERROR, TAG, "touch reset unavailable; existing hooks unchanged", error);
+        }
+    }
+
+    private void installTouchReset(Context context, ClassLoader loader, Class<?> touch, Class<?> contact)
+            throws ReflectiveOperationException {
+        Class<?> point = loader.loadClass(BASE + "PointF");
+        Class<?> jobType = loader.loadClass("kotlinx.coroutines.Job");
+        Method cancel = method(jobType, "cancel", void.class, CancellationException.class);
+        Method completed = method(jobType, "isCompleted", boolean.class);
+        Method stopTasks = method(touch, "s", void.class);
+        Method resetMouse = method(touch, "r", void.class);
+        Method contactId = method(contact, "a", int.class);
+        Method position = method(contact, "b", point);
+        Class<?> shoulder = loader.loadClass("com.oplus.games.shoulderkey.ShoulderKeyLibUtil");
+        Object inputManager = method(shoulder, "c", Object.class).invoke(singleton(shoulder).get(null));
+        Class<?> inputServiceType = loader.loadClass("android.hardware.input.IOplusInputManager");
+        Field inputServiceField = inputManager.getClass().getDeclaredField("mIOplusInputManager");
+        inputServiceField.setAccessible(true);
+        Object inputService = inputServiceField.get(inputManager);
+        if (inputService == null) throw new IllegalStateException("OPlus input service unavailable");
+        Method inject = method(inputServiceType, "injectShoulderTouchEvent", void.class,
+                MotionEvent.class, int.class);
+        String[] names = {"n", "o", "p", "q", "e", "f"};
+        Field[] state = new Field[names.length];
+        for (int i = 0; i < names.length; i++) {
+            Field field = touch.getDeclaredField(names[i]);
+            if (!Modifier.isStatic(field.getModifiers()) || field.getType() != (i < 4 ? jobType : point)) {
+                throw new NoSuchFieldException("touch reset state changed: " + names[i]);
+            }
+            field.setAccessible(true);
+            state[i] = field;
+        }
+        class ResetReceiver extends BroadcastReceiver {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (!isOrderedBroadcast()) return;
+                if (!SettingsApp.RESET_TOUCHES.equals(intent.getAction())) return;
+                PendingResult pending = goAsync();
+                reset(code -> {
+                    pending.setResultCode(code);
+                    pending.finish();
+                });
+            }
+
+            void reset(IntConsumer completion) {
+                reset(completion, new ArrayList<>(), SystemClock.uptimeMillis() + 2000);
+            }
+
+            private void reset(IntConsumer completion, List<Object> jobs, long deadline) {
+                int result = Activity.RESULT_OK;
+                try {
+                    synchronized (lock) {
+                        for (int i = 0; i < 4; i++) {
+                            Object job = state[i].get(null);
+                            if (job != null && !jobs.contains(job)) {
+                                jobs.add(job);
+                                cancel.invoke(job, (Object) null);
+                            }
+                        }
+                        for (Object job : jobs) {
+                            if (!(Boolean) completed.invoke(job)) {
+                                if (SystemClock.uptimeMillis() >= deadline) {
+                                    throw new IllegalStateException("touch tasks did not finish cancellation");
+                                }
+                                // Cancellation is asynchronous on the OEM IO/SINGLE dispatchers.
+                                // Wait without blocking the main thread before resetting flags.
+                                main.postDelayed(() -> reset(completion, jobs, deadline), 10);
+                                return;
+                            }
+                        }
+                        Object manager = touchInstance.get(null);
+                        stopTasks.invoke(manager);
+                        held = null;
+                        timers.clear();
+                        List<?> active = (List<?>) contacts.get(null);
+                        int released = active.size();
+                        // Native merge state can outlive the game's contact list/process.
+                        // Use the OEM service directly: the game wrapper drops UP outside
+                        // game mode. Only release the mapping namespace (LX keys start at 30).
+                        long now = SystemClock.uptimeMillis();
+                        MotionEvent up = MotionEvent.obtain(now, now, MotionEvent.ACTION_UP, 0, 0, 0);
+                        up.setSource(0x1002);
+                        try {
+                            for (Object item : active) {
+                                PointF location = (PointF) position.invoke(item);
+                                up.setLocation(location.x, location.y);
+                                inject.invoke(inputService, up, (Integer) contactId.invoke(item) + 11);
+                            }
+                            up.setLocation(0, 0);
+                            for (int id = 11; id < 30; id++) inject.invoke(inputService, up, id);
+                        } finally {
+                            up.recycle();
+                        }
+                        active.clear();
+                        resetMouse.invoke(manager);
+                        for (Field field : state) field.set(null, null);
+                        xposed.log(Log.INFO, TAG, "force touch reset completed; released " + released
+                                + " mapping contacts; native mapping UP sweep sent");
+                    }
+                } catch (Throwable error) {
+                    xposed.log(Log.ERROR, TAG, "force touch reset failed", error);
+                    result = Activity.RESULT_FIRST_USER;
+                }
+                completion.accept(result);
+            }
+        }
+        ResetReceiver receiver = new ResetReceiver();
+        IntentFilter actions = new IntentFilter(SettingsApp.RESET_TOUCHES);
+        context.registerReceiver(receiver, actions,
+                SettingsApp.RESET_PERMISSION, main,
+                Build.VERSION.SDK_INT >= 33 ? Context.RECEIVER_EXPORTED : 0);
+        xposed.log(Log.INFO, TAG, "signature-protected touch reset receiver installed");
     }
 
     private void readSettings() {
