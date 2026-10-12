@@ -4,9 +4,31 @@
     android:versionCode="3"
     android:versionName="1.2">
     <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="36" />
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
     <application
+        android:name=".SettingsApp"
         android:label="@string/app_name"
         android:description="@string/module_description"
         android:allowBackup="false"
-        android:hasCode="true" />
+        android:hasCode="true"
+        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        <activity android:name=".SettingsActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".GameSelectionActivity" android:label="适用游戏" android:exported="false" />
+        <provider
+            android:name="io.github.libxposed.service.XposedProvider"
+            android:authorities="io.github.ffdvdgd.opluskeymap.XposedService"
+            android:exported="true"
+            android:directBootAware="false" />
+    </application>
 </manifest>
