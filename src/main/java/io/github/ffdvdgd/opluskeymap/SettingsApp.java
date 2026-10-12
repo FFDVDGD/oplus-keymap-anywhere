@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.KeyEvent;
 
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -21,6 +22,9 @@ import io.github.libxposed.service.XposedServiceHelper;
 public final class SettingsApp extends Application {
     static final String GROUP = "mouse_move";
     static final String GAMES = "games";
+    static final String RELEASE_KEY = "release_key";
+    static final String RESET_KEY = "reset_key";
+    static final String RELEASE_MOUSE = "io.github.ffdvdgd.opluskeymap.RELEASE_MOUSE";
     static final String RESET_TOUCHES = "io.github.ffdvdgd.opluskeymap.RESET_TOUCHES";
     static final String RESET_PERMISSION = "io.github.ffdvdgd.opluskeymap.permission.RESET_TOUCHES";
 
@@ -85,6 +89,10 @@ public final class SettingsApp extends Application {
         inputAction(RESET_TOUCHES, completion);
     }
 
+    void releaseMouse(Consumer<Integer> completion) {
+        inputAction(RELEASE_MOUSE, completion);
+    }
+
     private void inputAction(String action, Consumer<Integer> completion) {
         // The default result means no live hook answered, not a successful reset.
         sendOrderedBroadcast(new Intent(action).setPackage("com.oplus.games"), null,
@@ -98,6 +106,13 @@ public final class SettingsApp extends Application {
 
     void save(Set<String> games, Consumer<Boolean> completion) {
         save(editor -> editor.putStringSet(GAMES, games), completion);
+    }
+
+    void saveShortcut(String key, int code, Consumer<Boolean> completion) {
+        save(editor -> {
+            if (code == KeyEvent.KEYCODE_UNKNOWN) editor.remove(key);
+            else editor.putInt(key, code);
+        }, completion);
     }
 
     private void save(Consumer<SharedPreferences.Editor> change, Consumer<Boolean> completion) {

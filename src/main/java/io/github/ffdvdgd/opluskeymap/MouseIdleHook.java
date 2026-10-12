@@ -1,6 +1,7 @@
 package io.github.ffdvdgd.opluskeymap;
 
 import android.app.Activity;
+import android.app.KeyguardManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -10,8 +11,11 @@ import android.graphics.PointF;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.InputEvent;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 
 import java.lang.reflect.Field;
@@ -24,6 +28,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 import java.util.function.IntConsumer;
 
 import io.github.libxposed.api.XposedInterface;
@@ -36,6 +41,7 @@ final class MouseIdleHook {
     private final SharedPreferences preferences;
     private final Object lock = new Object();
     private final WeakHashMap<Object, TimerState> timers = new WeakHashMap<>();
+    private final ShortcutKeys shortcuts = new ShortcutKeys();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final SharedPreferences.OnSharedPreferenceChangeListener listener;
     private final Field touchInstance;
@@ -50,10 +56,13 @@ final class MouseIdleHook {
     private final Method mouseAllowed;
     private final Method endMouse;
     private Set<String> games = Collections.emptySet();
+    private int releaseKey = KeyEvent.KEYCODE_UNKNOWN;
+    private int resetKey = KeyEvent.KEYCODE_UNKNOWN;
     private TimerState held;
     private boolean installed;
     private boolean filterActive;
     private boolean mouseEnabled;
+    private Runnable forceReset;
 
     static void install(XposedInterface xposed, ClassLoader loader, Context context) {
         try {
@@ -146,6 +155,7 @@ final class MouseIdleHook {
         intercept(unsetFilter, chain -> {
             synchronized (lock) {
                 filterActive = false;
+                shortcuts.clear();
                 releaseHeldMouse();
                 return chain.proceed();
             }
@@ -160,6 +170,7 @@ final class MouseIdleHook {
         intercept(stop, chain -> {
             synchronized (lock) {
                 filterActive = false;
+                shortcuts.clear();
                 releaseHeldMouse();
                 return chain.proceed();
             }
@@ -168,6 +179,7 @@ final class MouseIdleHook {
             synchronized (lock) {
                 if (!(Boolean) chain.getArg(0)) {
                     filterActive = false;
+                    shortcuts.clear();
                     releaseHeldMouse();
                 }
                 return chain.proceed();
@@ -180,7 +192,8 @@ final class MouseIdleHook {
             }
         });
         listener = (prefs, key) -> {
-            if (SettingsApp.GAMES.equals(key) || key == null) {
+            if (SettingsApp.GAMES.equals(key) || SettingsApp.RELEASE_KEY.equals(key)
+                    || SettingsApp.RESET_KEY.equals(key) || key == null) {
                 main.post(() -> {
                     synchronized (lock) {
                         readSettings();
@@ -205,6 +218,55 @@ final class MouseIdleHook {
             installTouchReset(context, loader, touch, contact);
         } catch (Throwable error) {
             xposed.log(Log.ERROR, TAG, "touch reset unavailable; existing hooks unchanged", error);
+        }
+        // Intercept before the native handler can forward BACK/FORWARD to the game.
+        // Match its game/screen guards; never reserve keys in unrelated applications.
+        try {
+            Class<?> gameState = loader.loadClass("wg0.a");
+            Method getGameState = method(gameState, "j", gameState);
+            Method playing = method(gameState, "n", boolean.class);
+            PowerManager power = context.getSystemService(PowerManager.class);
+            KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
+            if (power == null || keyguard == null) throw new IllegalStateException("screen services unavailable");
+            BooleanSupplier active = () -> {
+                try {
+                    return filterActive && (Boolean) playing.invoke(getGameState.invoke(null))
+                            && power.isInteractive() && !keyguard.isKeyguardLocked();
+                } catch (ReflectiveOperationException error) {
+                    xposed.log(Log.ERROR, TAG, "cannot determine shortcut game scope", error);
+                    return false;
+                }
+            };
+            Class<?> inputListener = loader.loadClass(BASE + "TouchControlManagerNew$d");
+            Method input = method(inputListener, "onInputEvent", void.class, InputEvent.class, int.class);
+            intercept(input, chain -> {
+                synchronized (lock) {
+                    ShortcutKeys.Action action = shortcuts.handle((InputEvent) chain.getArg(0),
+                            releaseKey, resetKey, active);
+                    if (action == ShortcutKeys.Action.PASS) return chain.proceed();
+                    try {
+                        if (action == ShortcutKeys.Action.RESET) {
+                            if (forceReset == null) throw new IllegalStateException("touch reset unavailable");
+                            forceReset.run();
+                        } else if (action == ShortcutKeys.Action.RELEASE && mouseEnabled
+                                && games.contains(currentGame())
+                                && !(Boolean) editing.invoke(configInstance.get(null))
+                                && (Boolean) mouseAllowed.invoke(banInstance.get(null))
+                                && currentContact() != null) {
+                            endMouse.invoke(touchInstance.get(null), 2);
+                            held = null;
+                            xposed.log(Log.INFO, TAG, "manual mouse release");
+                        }
+                    } catch (Throwable error) {
+                        // A failed operation must not leak its bound navigation key.
+                        xposed.log(Log.ERROR, TAG, "shortcut operation failed", error);
+                    }
+                    return null;
+                }
+            });
+            xposed.log(Log.INFO, TAG, "exclusive release/reset shortcuts installed; active games only");
+        } catch (Throwable error) {
+            xposed.log(Log.ERROR, TAG, "shortcuts unavailable; 500 ms hooks unchanged", error);
         }
     }
 
@@ -241,6 +303,36 @@ final class MouseIdleHook {
             @Override
             public void onReceive(Context context, Intent intent) {
                 if (!isOrderedBroadcast()) return;
+                if (SettingsApp.RELEASE_MOUSE.equals(intent.getAction())) {
+                    int result = Activity.RESULT_OK;
+                    try {
+                        synchronized (lock) {
+                            Object mouse = currentContact();
+                            // The module UI may be outside game mode, where the OEM
+                            // wrapper drops UP. Release this known mouse contact directly.
+                            if (mouse != null) {
+                                PointF location = (PointF) position.invoke(mouse);
+                                long now = SystemClock.uptimeMillis();
+                                MotionEvent up = MotionEvent.obtain(now, now, MotionEvent.ACTION_UP,
+                                        location.x, location.y, 0);
+                                up.setSource(0x1002);
+                                try {
+                                    inject.invoke(inputService, up, (Integer) contactId.invoke(mouse) + 11);
+                                } finally {
+                                    up.recycle();
+                                }
+                            }
+                            endMouse.invoke(touchInstance.get(null), 2);
+                            held = null;
+                            xposed.log(Log.INFO, TAG, "manual mouse release from module UI");
+                        }
+                    } catch (Throwable error) {
+                        xposed.log(Log.ERROR, TAG, "manual mouse release from module UI failed", error);
+                        result = Activity.RESULT_FIRST_USER;
+                    }
+                    setResultCode(result);
+                    return;
+                }
                 if (!SettingsApp.RESET_TOUCHES.equals(intent.getAction())) return;
                 PendingResult pending = goAsync();
                 reset(code -> {
@@ -313,14 +405,18 @@ final class MouseIdleHook {
         }
         ResetReceiver receiver = new ResetReceiver();
         IntentFilter actions = new IntentFilter(SettingsApp.RESET_TOUCHES);
+        actions.addAction(SettingsApp.RELEASE_MOUSE);
         context.registerReceiver(receiver, actions,
                 SettingsApp.RESET_PERMISSION, main,
                 Build.VERSION.SDK_INT >= 33 ? Context.RECEIVER_EXPORTED : 0);
+        forceReset = () -> receiver.reset(code -> {});
         xposed.log(Log.INFO, TAG, "signature-protected touch reset receiver installed");
     }
 
     private void readSettings() {
         games = new HashSet<>(preferences.getStringSet(SettingsApp.GAMES, Collections.emptySet()));
+        releaseKey = preferences.getInt(SettingsApp.RELEASE_KEY, KeyEvent.KEYCODE_UNKNOWN);
+        resetKey = preferences.getInt(SettingsApp.RESET_KEY, KeyEvent.KEYCODE_UNKNOWN);
     }
 
     private String currentGame() throws ReflectiveOperationException {
