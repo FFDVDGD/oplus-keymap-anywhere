@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OPlus KeyMap Anywhere</string>
-    <string name="module_description">解除游戏助手的键盘厂商限制；仅作用于 com.oplus.games，仍需完整外接键盘。</string>
+    <string name="app_name">游戏助手键鼠解锁</string>
+    <string name="module_description">解锁游戏助手的普通键盘支持，按游戏保持鼠标按下，支持自定义手动松开按键。</string>
 </resources>
