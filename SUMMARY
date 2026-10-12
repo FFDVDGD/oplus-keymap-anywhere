@@ -1,1 +1,1 @@
-Unlock OPlus Game Assistant's built-in key mapping for non-official full keyboards, including scrcpy UHID. Requires modern libxposed API 102; no hard version lock. Tested on Game Assistant 10.34.21.
+解锁 OPlus / 一加游戏助手的普通键盘支持，包括 scrcpy UHID；支持按游戏保持鼠标按下、自定义松开与复位快捷键，以及一键恢复卡住的键鼠映射触点。
