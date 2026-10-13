@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -85,7 +84,7 @@ class SettingsActivity : SettingsPage() {
                     onClick = { startActivity(Intent(this@SettingsActivity, GameSelectionActivity::class.java)) },
                 )
                 ArrowPreference(
-                    title = "手动松开按键",
+                    title = "手动松开快捷键",
                     summary = if (preferencesReady) keyName(releaseKey) else "设置暂不可读取",
                     enabled = preferencesReady && !saving,
                     onClick = { chooseShortcut(SettingsApp.RELEASE_KEY) },
@@ -100,20 +99,16 @@ class SettingsActivity : SettingsPage() {
             SmallTitle("故障恢复")
             Card {
                 ArrowPreference(
-                    title = "强制复位按键",
+                    title = "强制复位快捷键",
                     summary = if (preferencesReady) keyName(resetKey) else "设置暂不可读取",
                     enabled = preferencesReady && !saving,
                     onClick = { chooseShortcut(SettingsApp.RESET_KEY) },
                 )
                 TextButton(
-                    text = if (resetting) "正在复位…" else "强制松开并复位所有触摸",
+                    text = if (resetting) "正在复位…" else "强制松开并复位所有触摸\n（存在未松开触摸点时使用）",
                     onClick = { resetTouches() },
                     enabled = !resetting,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-                Text(
-                    "触摸卡住时使用，不会更改设置",
-                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 20.dp),
                 )
             }
         }
@@ -149,7 +144,7 @@ class SettingsActivity : SettingsPage() {
     private fun BindingDialog() {
         WindowDialog(
             show = bindingVisible,
-            title = "设置" + if (binding == SettingsApp.RELEASE_KEY) "手动松开按键" else "强制复位按键",
+            title = "设置" + if (binding == SettingsApp.RELEASE_KEY) "手动松开快捷键" else "强制复位快捷键",
             summary = "按下要绑定的按键。绑定按键在模块界面和游戏中仅供模块使用。",
             onDismissRequest = { bindingVisible = false },
         ) {
