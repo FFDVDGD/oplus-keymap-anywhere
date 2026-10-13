@@ -12,16 +12,16 @@
 
 ## 代码职责
 
-Java 文件位于 `src/main/java/io/github/ffdvdgd/opluskeymap/`：
+Hook、服务连接和按键处理使用 Java，位于 `src/main/java/io/github/ffdvdgd/opluskeymap/`；设置界面使用 Kotlin、Jetpack Compose 与 Miuix，位于 `src/main/kotlin/io/github/ffdvdgd/opluskeymap/`：
 
 | 文件 | 职责 |
 | --- | --- |
 | `KeyboardHook` | 模块入口、键盘厂商限制解除、游戏助手进程内的外接键盘适配 |
 | `MouseIdleHook` | 游戏名单判定、500 ms 自动松开抑制、输入拦截、触摸释放与复位 |
 | `SettingsApp` | LSPosed 服务连接、配置读写、向游戏助手发送操作请求 |
-| `SettingsPage` | 设置页共用布局、服务状态和已绑定快捷键处理 |
-| `SettingsActivity` | 分组首页、直接按键绑定、复位入口 |
-| `GameSelectionActivity` | 应用列表、图标、搜索、已选置顶 |
+| `SettingsPage.kt` | Miuix 主题与共用布局、服务状态、Activity 原生快捷键分发 |
+| `SettingsActivity.kt` | 分组首页、宽屏双栏、独立窗口按键绑定、复位入口 |
+| `GameSelectionActivity.kt` | 应用列表、图标、搜索、已选置顶 |
 | `ShortcutKeys` | 键盘/鼠标侧键归一化、按下状态、去重与操作优先级 |
 
 增加设置时沿用这一分工：保存与服务连接归 `SettingsApp`，独立选择页面继承 `SettingsPage`，首页按功能分组。不要把新设置全部堆进游戏选择页。
@@ -52,7 +52,7 @@ Java 文件位于 `src/main/java/io/github/ffdvdgd/opluskeymap/`：
 
 ## 构建与签名
 
-使用 Windows PowerShell、JDK 和 Android SDK（platform 36 或更新版本及 build-tools）：
+使用 Windows PowerShell、JDK 21 和 Android SDK（platform 37 及 build-tools）。Gradle Wrapper 固定为 9.7.1，Android Gradle Plugin 为 9.4.1，Kotlin / Compose 编译插件为 2.4.20；使用 AGP 内置 Kotlin，Miuix UI 与 Preference 为 0.9.4。
 
 ```powershell
 .\build.ps1
@@ -60,14 +60,16 @@ Java 文件位于 `src/main/java/io/github/ffdvdgd/opluskeymap/`：
 .\build.ps1 -Sdk 'D:\Android\Sdk' -Jdk 'D:\Java\jdk-21'
 ```
 
-SDK 默认位于 `%LOCALAPPDATA%\Android\Sdk`。JDK 使用 `JAVA_HOME`，未设置时使用 Android Studio 的 JBR。脚本下载 libxposed API 102.0.0 用于编译，将 service/interface 102.0.0 打包，并附带依赖许可证。
+SDK 默认位于 `%LOCALAPPDATA%\Android\Sdk`。JDK 使用 `JAVA_HOME`，未设置时使用 Android Studio 的 JBR。脚本调用 Gradle Wrapper 构建 Release；Gradle 下载编译依赖，libxposed API 102.0.0 仅用于编译，service/interface 102.0.0 随 APK 打包。依赖许可随 APK 放在 `assets/licenses/`。
 
-输出为 `dist/oplus-keymap-anywhere.apk`，缓存与本地签名密钥位于 `.amp/in/`。发布必须沿用同一密钥，避免无法覆盖安装；密钥不进入 Git。脚本清理旧编译产物，先签名和校验临时 APK，再更新输出，避免把失败构建当成新包。
+应用 ID、SDK 级别与 versionCode/versionName 以 `build.gradle.kts` 为准。Release 使用 R8 和资源裁剪；`proguard-rules.pro` 保留 LSPosed 从 `META-INF/xposed/java_init.list` 加载的 Hook 类及反射访问的鼠标 Hook 结构，不改写静态作用域文件。
+
+输出为 `dist/oplus-keymap-anywhere.apk`，编译产物位于 `.amp/in/gradle-build/`，本地签名密钥为 `.amp/in/development.jks`。发布必须沿用同一密钥，避免无法覆盖安装；密钥不进入 Git。脚本先完成 Release 构建、签名和校验，再更新输出，避免把失败构建当成新包。
 
 ## 验证与发布
 
 基础验证为构建、签名、设置读写与 Hook 载入；界面变化检查实机渲染。用户已确认鼠标保持、手动松开和强制复位正常，游戏内验证由用户完成。调试材料只保存在被忽略的 `.amp/in/`，不写进公开使用文档。
 
-发布前核对清单中的 versionCode/versionName、中文名称和签名；按功能拆分可编译的提交。标签格式为 `<versionCode>-<versionName>`，1.3 为 `4-1.3`；Release 标题和说明使用中文，附带 APK。发布后核对标签指向、Release 附件和下载文件校验值。
+发布前核对 `build.gradle.kts` 与最终 APK 中的 versionCode/versionName、中文名称和签名；按功能拆分可编译的提交。标签格式为 `<versionCode>-<versionName>`，1.3 为 `4-1.3`；Release 标题和说明使用中文，附带 APK。发布后核对标签指向、Release 附件和下载文件校验值。
 
 LSPosed 官方目录材料为合规应用 ID、README、SUMMARY 与 APK Release。目录仓库应只承载说明与发行，不转移整个源码仓库；收录申请入口为 [Xposed-Modules-Repo/submission](https://github.com/Xposed-Modules-Repo/submission)，需要独立授权，不能把「资料已准备」写成「已经收录」。
