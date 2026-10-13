@@ -1,5 +1,7 @@
 /.amp/in/
 /dist/
+/.gradle/
+/local.properties
 /Screenshot_*.jpg
 *.jks
 *.keystore
