@@ -79,10 +79,14 @@ final class MouseIdleHook {
     private MouseIdleHook(XposedInterface xposed, ClassLoader loader, Context context) throws Throwable {
         this.xposed = xposed;
         preferences = xposed.getRemotePreferences(SettingsApp.GROUP);
+        Class<?> devices = KeyboardHook.keyboardManager(loader);
+        // The named KeyboardManager accompanies the renamed touch/game-state layout.
+        // Resolve the two known layouts by class presence, never by version number.
+        boolean namedKeyboard = devices.getName().equals(BASE + "KeyboardManager");
         Class<?> touch = loader.loadClass(BASE + "TouchControlManagerNew");
-        Class<?> contact = loader.loadClass(BASE + "TouchControlManagerNew$c");
+        Class<?> contact = loader.loadClass(BASE + "TouchControlManagerNew$" + (namedKeyboard ? "b" : "c"));
         Class<?> config = loader.loadClass(BASE + "edit.manager.KeyMouseConfigManager");
-        Class<?> ban = loader.loadClass(BASE + "b");
+        Class<?> ban = loader.loadClass(BASE + (namedKeyboard ? "a" : "b"));
         Class<?> feature = loader.loadClass(BASE + "KeyMouseMappingFeature");
         Class<?> timer = loader.loadClass(BASE + "TouchControlManagerNew$mouseMove$1");
         touchInstance = singleton(touch);
@@ -98,8 +102,8 @@ final class MouseIdleHook {
         mapping = config.getDeclaredMethod("u", int.class);
         mappingPackage = method(mapping.getReturnType(), "getPkg", String.class);
         editing = method(config, "K", boolean.class);
-        mouseAllowed = method(ban, "c", boolean.class);
-        endMouse = method(touch, "L", void.class, int.class);
+        mouseAllowed = method(ban, namedKeyboard ? "b" : "c", boolean.class);
+        endMouse = method(touch, namedKeyboard ? "J" : "L", void.class, int.class);
         Method resume = method(timer, "invokeSuspend", Object.class, Object.class);
         Field label = timer.getDeclaredField("label");
         if (label.getType() != int.class) throw new NoSuchFieldException("timer label is not int");
@@ -113,7 +117,6 @@ final class MouseIdleHook {
         Method edit = method(config, "O", void.class, boolean.class);
         Method enabled = method(feature, "getKeyMouseMappingSwitch", boolean.class);
         Method inGame = method(feature.getSuperclass(), "getMInGameMode", boolean.class);
-        Class<?> devices = loader.loadClass(BASE + "c");
         Field deviceInstance = singleton(devices);
         Method attached = method(devices, "g", boolean.class);
 
@@ -215,16 +218,16 @@ final class MouseIdleHook {
         }
         xposed.log(Log.INFO, TAG, "500 ms hooks installed; initial 20+80 ms task unchanged");
         try {
-            installTouchReset(context, loader, touch, contact);
+            installTouchReset(context, loader, touch, contact, namedKeyboard);
         } catch (Throwable error) {
             xposed.log(Log.ERROR, TAG, "touch reset unavailable; existing hooks unchanged", error);
         }
         // Intercept before the native handler can forward BACK/FORWARD to the game.
         // Match its game/screen guards; never reserve keys in unrelated applications.
         try {
-            Class<?> gameState = loader.loadClass("wg0.a");
-            Method getGameState = method(gameState, "j", gameState);
-            Method playing = method(gameState, "n", boolean.class);
+            Class<?> gameState = loader.loadClass(namedKeyboard ? "xc0.a" : "wg0.a");
+            Method getGameState = method(gameState, namedKeyboard ? "m" : "j", gameState);
+            Method playing = method(gameState, namedKeyboard ? "s" : "n", boolean.class);
             PowerManager power = context.getSystemService(PowerManager.class);
             KeyguardManager keyguard = context.getSystemService(KeyguardManager.class);
             if (power == null || keyguard == null) throw new IllegalStateException("screen services unavailable");
@@ -270,14 +273,15 @@ final class MouseIdleHook {
         }
     }
 
-    private void installTouchReset(Context context, ClassLoader loader, Class<?> touch, Class<?> contact)
+    private void installTouchReset(Context context, ClassLoader loader, Class<?> touch, Class<?> contact,
+            boolean namedKeyboard)
             throws ReflectiveOperationException {
         Class<?> point = loader.loadClass(BASE + "PointF");
         Class<?> jobType = loader.loadClass("kotlinx.coroutines.Job");
         Method cancel = method(jobType, "cancel", void.class, CancellationException.class);
         Method completed = method(jobType, "isCompleted", boolean.class);
-        Method stopTasks = method(touch, "s", void.class);
-        Method resetMouse = method(touch, "r", void.class);
+        Method stopTasks = method(touch, namedKeyboard ? "q" : "s", void.class);
+        Method resetMouse = method(touch, namedKeyboard ? "p" : "r", void.class);
         Method contactId = method(contact, "a", int.class);
         Method position = method(contact, "b", point);
         Class<?> shoulder = loader.loadClass("com.oplus.games.shoulderkey.ShoulderKeyLibUtil");

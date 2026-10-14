@@ -26,8 +26,7 @@ public final class KeyboardHook extends XposedModule {
                 try {
                     long version = context.getPackageManager()
                             .getPackageInfo(TARGET, 0).getLongVersionCode();
-                    Class<?> manager = pkg.getClassLoader().loadClass(
-                            "com.oplus.games.feature.keymousemapping.c");
+                    Class<?> manager = keyboardManager(pkg.getClassLoader());
                     Method official = manager.getDeclaredMethod("i", InputDevice.class);
                     Method external = InputDevice.class.getDeclaredMethod("isExternal");
                     if (official.getReturnType() != boolean.class) {
@@ -58,6 +57,14 @@ public final class KeyboardHook extends XposedModule {
             });
         } catch (Throwable error) {
             log(Log.ERROR, "GameHubKeyboard", "cannot hook Application.attach", error);
+        }
+    }
+
+    static Class<?> keyboardManager(ClassLoader loader) throws ClassNotFoundException {
+        try {
+            return loader.loadClass("com.oplus.games.feature.keymousemapping.KeyboardManager");
+        } catch (ClassNotFoundException ignored) {
+            return loader.loadClass("com.oplus.games.feature.keymousemapping.c");
         }
     }
 
