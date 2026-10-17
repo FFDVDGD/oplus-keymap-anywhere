@@ -41,7 +41,9 @@ def sync_docs(root, work):
     subprocess.run([*git, "add", "--", *DOCS], check=True)
     changes = subprocess.run([*git, "diff", "--cached", "--quiet"], check=False)
     if changes.returncode == 0:
-        print("说明文件已是最新，无需提交。", flush=True)
+        subprocess.run(["git", *GIT_AUTH, "-C", str(repository), "push", "--dry-run",
+                        "origin", "HEAD:main"], check=True)
+        print("目录仓库写权限检查通过；说明文件已是最新，无需提交。", flush=True)
         return
     if changes.returncode != 1:
         raise RuntimeError("Cannot inspect staged documentation changes")
