@@ -93,3 +93,15 @@ JVM 测试使用 `./gradlew.bat testDebugUnitTest`，覆盖多轮盘独立操作
 发布前核对 `build.gradle.kts` 与最终 APK 中的 versionCode/versionName、中文名称和签名；按功能拆分可编译的提交。标签格式为 `<versionCode>-<versionName>`，1.3 为 `4-1.3`；Release 标题和说明使用中文，附带 APK。发布后核对标签指向、Release 附件和下载文件校验值。
 
 LSPosed 官方目录材料为合规应用 ID、README、SUMMARY 与 APK Release。目录仓库应只承载说明与发行，不转移整个源码仓库；收录申请入口为 [Xposed-Modules-Repo/submission](https://github.com/Xposed-Modules-Repo/submission)，需要独立授权，不能把「资料已准备」写成「已经收录」。
+
+### 官方目录单向同步
+
+`.github/workflows/sync-module-repo.yml` 从源码仓库同步到 `Xposed-Modules-Repo/io.github.ffdvdgd.opluskeymap`：`main` 上的 README、SUMMARY 或 LICENSE 更新时同步这三个文件；发布或编辑 Release 时，同时同步中文说明和原始 APK，不重新构建。README 中不在同步范围内的文件须链接到源码仓库的绝对地址。
+
+官方仓库的 Release 标题按目录规范使用 versionName，标签仍为 `<versionCode>-<versionName>`。APK 校验一致后才发布目标草稿；已发布的同名 APK 不一致时停止，不覆盖安装包。重复运行不创建多余提交，不改动一致的 Release，也不删除目标仓库的其他文件。
+
+首次设置：在源码仓库的 [Actions Secrets](https://github.com/FFDVDGD/oplus-keymap-anywhere/settings/secrets/actions) 添加 `MODULE_REPO_TOKEN`。令牌使用拥有目标仓库写权限的账户创建的专用 **classic PAT**，仅勾选 `public_repo`，设置有效期并在到期前更换；不要使用日常 CLI 凭据。GitHub 的内置 `GITHUB_TOKEN` 不能跨仓库写入，fine-grained PAT 目前不支持组织仓库的外部协作者场景。令牌只在 GitHub 的安全输入框中填写，不写入源码、文档或对话。
+
+可在 Actions 中手动运行「同步 LSPosed 官方目录」：`release_tag` 为 `latest` 时同步最新正式版，指定标签时同步该版本，留空则仅同步说明。发布源 Release 时先上传 APK，再发布；只补传附件不会触发 Release 编辑事件，需手动运行同步。脚本也可用已登录的 `gh` 和 Python 3.11+ 执行：`python .github/scripts/sync_module_repo.py --release latest`。
+
+仓库 About 的 Description 和 Home Page 不由工作流修改，须在 GitHub 网页分别设置为模块名称和支持链接；官方目录要求资料完整后才展示，完成同步不等于已在目录中可见。

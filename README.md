@@ -2,7 +2,7 @@
 
 让普通键盘也能使用 OPlus / 一加游戏助手的「键鼠映射」，支持 scrcpy UHID。
 
-[下载 APK](https://github.com/FFDVDGD/oplus-keymap-anywhere/releases/latest) · [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/FFDVDGD/oplus-keymap-anywhere/issues)
+[下载 APK](https://github.com/FFDVDGD/oplus-keymap-anywhere/releases/latest) · [更新日志](https://github.com/FFDVDGD/oplus-keymap-anywhere/blob/main/CHANGELOG.md) · [反馈问题](https://github.com/FFDVDGD/oplus-keymap-anywhere/issues) · [源码](https://github.com/FFDVDGD/oplus-keymap-anywhere)
 
 ## 功能
 
