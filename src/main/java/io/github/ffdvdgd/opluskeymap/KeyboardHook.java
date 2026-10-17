@@ -4,6 +4,8 @@ import android.app.Application;
 import android.content.Context;
 import android.util.Log;
 import android.view.InputDevice;
+import android.view.InputEvent;
+import android.view.KeyEvent;
 
 import java.lang.reflect.Method;
 
@@ -53,6 +55,7 @@ public final class KeyboardHook extends XposedModule {
                 } catch (Throwable error) {
                     log(Log.ERROR, "GameHubKeyboard", "hook not installed", error);
                 }
+                installFunctionKeys(pkg.getClassLoader());
                 MouseIdleHook.install(this, pkg.getClassLoader(), context);
                 WheelHook.install(this, pkg.getClassLoader());
                 return result;
@@ -67,6 +70,55 @@ public final class KeyboardHook extends XposedModule {
             return loader.loadClass("com.oplus.games.feature.keymousemapping.KeyboardManager");
         } catch (ClassNotFoundException ignored) {
             return loader.loadClass("com.oplus.games.feature.keymousemapping.c");
+        }
+    }
+
+    private void installFunctionKeys(ClassLoader loader) {
+        try {
+            String base = "com.oplus.games.feature.keymousemapping.";
+            boolean named = keyboardManager(loader).getName().equals(base + "KeyboardManager");
+            Class<?> conversion = loader.loadClass(named ? base + "util.KeyCodeConversion" : "wf0.a");
+            Class<?> touch = loader.loadClass(base + "TouchControlManagerNew");
+            Class<?> listener = loader.loadClass("android.hardware.input.OplusInputManager$InputFilterListener");
+            Method label = conversion.getDeclaredMethod("f", int.class);
+            Method code = conversion.getDeclaredMethod("b", String.class);
+            Method input = touch.getDeclaredMethod(named ? "E" : "G", listener, KeyEvent.class, int.class);
+            Method forward = touch.getDeclaredMethod(named ? "n" : "p", listener, InputEvent.class, int.class);
+            if (label.getReturnType() != String.class || code.getReturnType() != Integer.class
+                    || input.getReturnType() != void.class || forward.getReturnType() != void.class) {
+                throw new NoSuchMethodException("function key signatures changed");
+            }
+            for (Method method : new Method[] {label, code, input, forward}) method.setAccessible(true);
+
+            ThreadLocal<KeyEvent> reserved = new ThreadLocal<>();
+            hook(forward).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(chain -> {
+                KeyEvent event = reserved.get();
+                return event != null && event == chain.getArg(1) ? null : chain.proceed();
+            });
+            // The native listener has already checked game/screen scope here.
+            // Run mapping normally, suppressing only its fallback forwarding.
+            hook(input).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(chain -> {
+                KeyEvent event = (KeyEvent) chain.getArg(1);
+                if (!FunctionKeys.contains(event.getKeyCode())) return chain.proceed();
+                KeyEvent previous = reserved.get();
+                reserved.set(event);
+                try {
+                    return chain.proceed();
+                } finally {
+                    reserved.set(previous);
+                }
+            });
+            hook(label).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(chain -> {
+                String value = FunctionKeys.label((Integer) chain.getArg(0));
+                return value != null ? value : chain.proceed();
+            });
+            hook(code).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(chain -> {
+                Integer value = FunctionKeys.code((String) chain.getArg(0));
+                return value != null ? value : chain.proceed();
+            });
+            log(Log.INFO, "GameHubKeyboard", "F1-F12 mapping and game-only interception installed");
+        } catch (Throwable error) {
+            log(Log.ERROR, "GameHubKeyboard", "function key hooks not installed", error);
         }
     }
 
