@@ -39,7 +39,7 @@ final class MouseIdleHook {
 
     private final XposedInterface xposed;
     private final SharedPreferences preferences;
-    private final Object lock = new Object();
+    private final Object lock = KeyboardHook.INPUT_LOCK;
     private final WeakHashMap<Object, TimerState> timers = new WeakHashMap<>();
     private final ShortcutKeys shortcuts = new ShortcutKeys();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -353,6 +353,7 @@ final class MouseIdleHook {
                 int result = Activity.RESULT_OK;
                 try {
                     synchronized (lock) {
+                        WheelHook.beginReset();
                         for (int i = 0; i < 4; i++) {
                             Object job = state[i].get(null);
                             if (job != null && !jobs.contains(job)) {
@@ -397,6 +398,7 @@ final class MouseIdleHook {
                         active.clear();
                         resetMouse.invoke(manager);
                         for (Field field : state) field.set(null, null);
+                        WheelHook.finishReset();
                         xposed.log(Log.INFO, TAG, "force touch reset completed; released " + released
                                 + " mapping contacts; native mapping UP sweep sent");
                     }

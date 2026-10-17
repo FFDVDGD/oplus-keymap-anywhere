@@ -11,6 +11,7 @@ import io.github.libxposed.api.XposedModule;
 
 public final class KeyboardHook extends XposedModule {
     private static final String TARGET = "com.oplus.games";
+    static final Object INPUT_LOCK = new Object();
 
     @Override
     public void onPackageReady(PackageReadyParam pkg) {
@@ -53,6 +54,7 @@ public final class KeyboardHook extends XposedModule {
                     log(Log.ERROR, "GameHubKeyboard", "hook not installed", error);
                 }
                 MouseIdleHook.install(this, pkg.getClassLoader(), context);
+                WheelHook.install(this, pkg.getClassLoader());
                 return result;
             });
         } catch (Throwable error) {
