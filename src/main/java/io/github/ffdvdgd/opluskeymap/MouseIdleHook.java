@@ -13,6 +13,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.InputEvent;
 import android.view.KeyEvent;
@@ -217,6 +218,22 @@ final class MouseIdleHook {
             installed = true;
         }
         xposed.log(Log.INFO, TAG, "500 ms hooks installed; initial 20+80 ms task unchanged");
+        try {
+            Method savedSpeed = method(feature, "setSystemPointerSpeed", void.class, int.class);
+            intercept(disposition, chain -> {
+                synchronized (lock) {
+                    // The OEM getter returns the temporary speed too. Re-entering mapping
+                    // can therefore save -6 as the restore value. Use the user's setting
+                    // without changing either the setting or the native in-game speed.
+                    int speed = Settings.System.getInt(context.getContentResolver(), "pointer_speed", 0);
+                    savedSpeed.invoke(chain.getThisObject(), speed);
+                    return chain.proceed();
+                }
+            });
+            xposed.log(Log.INFO, TAG, "mouse speed restore uses system setting");
+        } catch (Throwable error) {
+            xposed.log(Log.ERROR, TAG, "mouse speed restore unavailable; existing hooks unchanged", error);
+        }
         try {
             installTouchReset(context, loader, touch, contact, namedKeyboard);
         } catch (Throwable error) {
