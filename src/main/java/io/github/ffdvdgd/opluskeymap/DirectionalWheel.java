@@ -81,6 +81,10 @@ final class DirectionalWheel {
         contact = null;
     }
 
+    boolean isIdle() {
+        return pressed.isEmpty() && contact == null && animation == null;
+    }
+
     private void update() throws ReflectiveOperationException {
         List<Key> directions = new ArrayList<>();
         for (Key key : pressed) if (key.direction != Direction.CENTER) directions.add(key);

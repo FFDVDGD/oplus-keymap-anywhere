@@ -64,16 +64,23 @@ final class WheelHook implements DirectionalWheel.Backend {
     private final Method inject;
     private final float fastOffset;
     private final DirectionalWheel.Scheduler scheduler;
+    private final HandlerThread worker;
+    private final Handler handler;
     private volatile boolean ready;
     private boolean resetting;
 
     static void install(XposedInterface xposed, ClassLoader loader) {
         try {
             WheelHook hook = new WheelHook(xposed, loader);
-            instance = hook;
             hook.ready = true;
             xposed.log(Log.INFO, TAG, "multiple directional wheels installed");
         } catch (Throwable error) {
+            try {
+                Thread worker = uninstall();
+                if (worker != null) worker.join();
+            } catch (Throwable cleanup) {
+                error.addSuppressed(cleanup);
+            }
             xposed.log(Log.ERROR, TAG, "multiple wheels unavailable; editor limit unchanged", error);
         }
     }
@@ -140,9 +147,10 @@ final class WheelHook implements DirectionalWheel.Backend {
         inject = method(loader.loadClass("android.hardware.input.IOplusInputManager"),
                 "injectShoulderTouchEvent", MotionEvent.class, int.class);
 
-        HandlerThread worker = new HandlerThread("KeymapWheels");
+        worker = new HandlerThread("KeymapWheels");
+        instance = this;
         worker.start();
-        Handler handler = new Handler(worker.getLooper());
+        handler = new Handler(worker.getLooper());
         scheduler = new DirectionalWheel.Scheduler() {
             public void post(Runnable task) { handler.postDelayed(task, 1); }
             public void remove(Runnable task) { handler.removeCallbacks(task); }
@@ -172,6 +180,7 @@ final class WheelHook implements DirectionalWheel.Backend {
         intercept(method(touchType, named ? "E" : "G", listener, KeyEvent.class, int.class), chain -> {
             if (!ready) return chain.proceed();
             synchronized (KeyboardHook.INPUT_LOCK) {
+                if (!ready) return chain.proceed();
                 Dispatch previous = dispatch.get();
                 dispatch.set(new Dispatch());
                 try {
@@ -285,6 +294,24 @@ final class WheelHook implements DirectionalWheel.Backend {
             if (!ready || !(Boolean) initialized.invoke(config)) return chain.proceed();
             return chain.proceed(new Object[] {true});
         });
+    }
+
+    static boolean canReload() {
+        if (instance == null) return true;
+        if (instance.resetting) return false;
+        return instance.wheels.values().stream().allMatch(DirectionalWheel::isIdle);
+    }
+
+    // Called with INPUT_LOCK held; join the returned thread only after releasing it.
+    static Thread uninstall() throws ReflectiveOperationException {
+        if (instance == null) return null;
+        WheelHook old = instance;
+        old.ready = false;
+        old.stopAll();
+        if (old.handler != null) old.handler.removeCallbacksAndMessages(null);
+        old.worker.quit();
+        instance = null;
+        return old.worker;
     }
 
     static void beginReset() throws ReflectiveOperationException {

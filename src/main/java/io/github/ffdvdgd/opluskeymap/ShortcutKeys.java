@@ -56,6 +56,10 @@ final class ShortcutKeys {
         return code == resetKey ? Action.RESET : Action.RELEASE;
     }
 
+    boolean isIdle() {
+        return pressed.isEmpty();
+    }
+
     void clear() {
         pressed.clear();
     }

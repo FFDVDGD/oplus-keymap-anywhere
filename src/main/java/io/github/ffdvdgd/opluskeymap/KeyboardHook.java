@@ -13,7 +13,11 @@ import io.github.libxposed.api.XposedModule;
 
 public final class KeyboardHook extends XposedModule {
     private static final String TARGET = "com.oplus.games";
-    static final Object INPUT_LOCK = new Object();
+    // Keep the same monitor across generations, including in-flight native callbacks.
+    static Object INPUT_LOCK = new Object();
+    private Context targetContext;
+    private ClassLoader targetLoader;
+    private volatile boolean initialized;
 
     @Override
     public void onPackageReady(PackageReadyParam pkg) {
@@ -26,43 +30,86 @@ public final class KeyboardHook extends XposedModule {
             hook(attach).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(chain -> {
                 Object result = chain.proceed();
                 Context context = (Context) chain.getArg(0);
-                try {
-                    long version = context.getPackageManager()
-                            .getPackageInfo(TARGET, 0).getLongVersionCode();
-                    Class<?> manager = keyboardManager(pkg.getClassLoader());
-                    Method official = manager.getDeclaredMethod("i", InputDevice.class);
-                    Method external = InputDevice.class.getDeclaredMethod("isExternal");
-                    if (official.getReturnType() != boolean.class) {
-                        log(Log.WARN, "GameHubKeyboard", "keyboard check is not boolean in version "
-                                + version + "; no changes applied");
-                        return result;
-                    }
-                    hook(official).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(check -> {
-                        Object original = check.proceed();
-                        InputDevice device = (InputDevice) check.getArg(0);
-                        return isAttachedKeyboard(device) ? Boolean.TRUE : original;
-                    });
-                    // OPlus classifies scrcpy's BUS_VIRTUAL UHID device as
-                    // internal. Normalize attached full keyboards only in
-                    // the game assistant, never in system_server or the game.
-                    hook(external).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(check -> {
-                        Object original = check.proceed();
-                        InputDevice device = (InputDevice) check.getThisObject();
-                        return isAttachedKeyboard(device) ? Boolean.TRUE : original;
-                    });
-                    log(Log.INFO, "GameHubKeyboard", "vendor gate removed for "
-                            + TARGET + " " + version);
-                } catch (Throwable error) {
-                    log(Log.ERROR, "GameHubKeyboard", "hook not installed", error);
-                }
-                installFunctionKeys(pkg.getClassLoader());
-                MouseIdleHook.install(this, pkg.getClassLoader(), context);
-                WheelHook.install(this, pkg.getClassLoader());
+                install(context, pkg.getClassLoader(), null);
                 return result;
             });
         } catch (Throwable error) {
             log(Log.ERROR, "GameHubKeyboard", "cannot hook Application.attach", error);
         }
+    }
+
+    @Override
+    public boolean onHotReloading(HotReloadingParam param) {
+        try {
+            Thread worker;
+            synchronized (INPUT_LOCK) {
+                if (!initialized || !MouseIdleHook.canReload() || !WheelHook.canReload()) {
+                    log(Log.INFO, "GameHubKeyboard", "hot reload refused; module or input is not ready");
+                    return false;
+                }
+                // Only framework/app objects cross classloaders, never module instances.
+                param.setSavedInstanceState(new Object[] {
+                        targetContext, targetLoader, INPUT_LOCK, MouseIdleHook.reloadState()});
+                initialized = false;
+                MouseIdleHook.uninstall();
+                worker = WheelHook.uninstall();
+            }
+            // A dequeued animation may still be waiting for INPUT_LOCK.
+            if (worker != null) worker.join();
+            return true;
+        } catch (Throwable error) {
+            log(Log.ERROR, "GameHubKeyboard", "hot reload cleanup failed", error);
+            return false;
+        }
+    }
+
+    @Override
+    public void onHotReloaded(HotReloadedParam param) {
+        Object[] state = (Object[]) param.getSavedInstanceState();
+        INPUT_LOCK = state[2];
+        synchronized (INPUT_LOCK) {
+            param.getOldHookHandles().forEach(HookHandle::unhook);
+            // Application.attach has already run; install directly in the live app.
+            install((Context) state[0], (ClassLoader) state[1], (boolean[]) state[3]);
+        }
+        log(Log.INFO, "GameHubKeyboard", "hot reload completed");
+    }
+
+    private void install(Context context, ClassLoader loader, boolean[] mouseState) {
+        targetContext = context;
+        targetLoader = loader;
+        try {
+            long version = context.getPackageManager()
+                    .getPackageInfo(TARGET, 0).getLongVersionCode();
+            Class<?> manager = keyboardManager(loader);
+            Method official = manager.getDeclaredMethod("i", InputDevice.class);
+            Method external = InputDevice.class.getDeclaredMethod("isExternal");
+            if (official.getReturnType() != boolean.class) {
+                log(Log.WARN, "GameHubKeyboard", "keyboard check is not boolean in version "
+                        + version + "; no changes applied");
+                return;
+            }
+            hook(official).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(check -> {
+                Object original = check.proceed();
+                InputDevice device = (InputDevice) check.getArg(0);
+                return isAttachedKeyboard(device) ? Boolean.TRUE : original;
+            });
+            // OPlus classifies scrcpy's BUS_VIRTUAL UHID device as
+            // internal. Normalize attached full keyboards only in
+            // the game assistant, never in system_server or the game.
+            hook(external).setExceptionMode(ExceptionMode.PROTECTIVE).intercept(check -> {
+                Object original = check.proceed();
+                InputDevice device = (InputDevice) check.getThisObject();
+                return isAttachedKeyboard(device) ? Boolean.TRUE : original;
+            });
+            log(Log.INFO, "GameHubKeyboard", "vendor gate removed for " + TARGET + " " + version);
+        } catch (Throwable error) {
+            log(Log.ERROR, "GameHubKeyboard", "hook not installed", error);
+        }
+        installFunctionKeys(loader);
+        MouseIdleHook.install(this, loader, context, mouseState);
+        WheelHook.install(this, loader);
+        initialized = true;
     }
 
     static Class<?> keyboardManager(ClassLoader loader) throws ClassNotFoundException {

@@ -37,8 +37,10 @@ import io.github.libxposed.api.XposedInterface;
 final class MouseIdleHook {
     private static final String TAG = "GameHubMouse";
     private static final String BASE = "com.oplus.games.feature.keymousemapping.";
+    private static MouseIdleHook instance;
 
     private final XposedInterface xposed;
+    private final Context context;
     private final SharedPreferences preferences;
     private final Object lock = KeyboardHook.INPUT_LOCK;
     private final WeakHashMap<Object, TimerState> timers = new WeakHashMap<>();
@@ -64,21 +66,28 @@ final class MouseIdleHook {
     private boolean filterActive;
     private boolean mouseEnabled;
     private Runnable forceReset;
+    private BroadcastReceiver receiver;
+    private boolean disposed;
+    private int pendingResets;
 
-    static void install(XposedInterface xposed, ClassLoader loader, Context context) {
+    static void install(XposedInterface xposed, ClassLoader loader, Context context, boolean[] state) {
         try {
             if ((xposed.getFrameworkProperties() & XposedInterface.PROP_CAP_REMOTE) == 0) {
                 xposed.log(Log.WARN, TAG, "remote preferences unavailable; mouse behavior unchanged");
                 return;
             }
-            new MouseIdleHook(xposed, loader, context);
+            new MouseIdleHook(xposed, loader, context, state);
         } catch (Throwable error) {
+            uninstall();
             xposed.log(Log.ERROR, TAG, "500 ms feature unavailable; keyboard hooks unchanged", error);
         }
     }
 
-    private MouseIdleHook(XposedInterface xposed, ClassLoader loader, Context context) throws Throwable {
+    private MouseIdleHook(XposedInterface xposed, ClassLoader loader, Context context, boolean[] savedState)
+            throws Throwable {
         this.xposed = xposed;
+        this.context = context;
+        instance = this;
         preferences = xposed.getRemotePreferences(SettingsApp.GROUP);
         Class<?> devices = KeyboardHook.keyboardManager(loader);
         // The named KeyboardManager accompanies the renamed touch/game-state layout.
@@ -198,23 +207,31 @@ final class MouseIdleHook {
         listener = (prefs, key) -> {
             if (SettingsApp.GAMES.equals(key) || SettingsApp.RELEASE_KEY.equals(key)
                     || SettingsApp.RESET_KEY.equals(key) || key == null) {
-                main.post(() -> {
-                    synchronized (lock) {
-                        readSettings();
-                        if (held != null && !games.contains(held.pkg)) {
-                            try {
-                                releaseHeldMouse();
-                            } catch (Throwable error) {
-                                xposed.log(Log.ERROR, TAG, "cannot release mouse after list change", error);
+                synchronized (lock) {
+                    if (disposed) return;
+                    main.post(() -> {
+                        synchronized (lock) {
+                            if (disposed) return;
+                            readSettings();
+                            if (held != null && !games.contains(held.pkg)) {
+                                try {
+                                    releaseHeldMouse();
+                                } catch (Throwable error) {
+                                    xposed.log(Log.ERROR, TAG, "cannot release mouse after list change", error);
+                                }
                             }
                         }
-                    }
-                });
+                    });
+                }
             }
         };
         preferences.registerOnSharedPreferenceChangeListener(listener);
         synchronized (lock) {
             readSettings();
+            if (savedState != null) {
+                filterActive = savedState[0];
+                mouseEnabled = savedState[1];
+            }
             installed = true;
         }
         xposed.log(Log.INFO, TAG, "500 ms hooks installed; initial 20+80 ms task unchanged");
@@ -323,11 +340,18 @@ final class MouseIdleHook {
         class ResetReceiver extends BroadcastReceiver {
             @Override
             public void onReceive(Context context, Intent intent) {
+                synchronized (lock) {
+                    if (disposed) return;
+                }
                 if (!isOrderedBroadcast()) return;
                 if (SettingsApp.RELEASE_MOUSE.equals(intent.getAction())) {
                     int result = Activity.RESULT_OK;
                     try {
                         synchronized (lock) {
+                            if (disposed) {
+                                setResultCode(Activity.RESULT_CANCELED);
+                                return;
+                            }
                             Object mouse = currentContact();
                             // The module UI may be outside game mode, where the OEM
                             // wrapper drops UP. Release this known mouse contact directly.
@@ -363,6 +387,13 @@ final class MouseIdleHook {
             }
 
             void reset(IntConsumer completion) {
+                synchronized (lock) {
+                    if (disposed) {
+                        completion.accept(Activity.RESULT_CANCELED);
+                        return;
+                    }
+                    pendingResets++;
+                }
                 reset(completion, new ArrayList<>(), SystemClock.uptimeMillis() + 2000);
             }
 
@@ -423,6 +454,9 @@ final class MouseIdleHook {
                     xposed.log(Log.ERROR, TAG, "force touch reset failed", error);
                     result = Activity.RESULT_FIRST_USER;
                 }
+                synchronized (lock) {
+                    pendingResets--;
+                }
                 completion.accept(result);
             }
         }
@@ -432,8 +466,37 @@ final class MouseIdleHook {
         context.registerReceiver(receiver, actions,
                 SettingsApp.RESET_PERMISSION, main,
                 Build.VERSION.SDK_INT >= 33 ? Context.RECEIVER_EXPORTED : 0);
+        this.receiver = receiver;
         forceReset = () -> receiver.reset(code -> {});
         xposed.log(Log.INFO, TAG, "signature-protected touch reset receiver installed");
+    }
+
+    static boolean canReload() throws ReflectiveOperationException {
+        return instance == null || instance.pendingResets == 0 && instance.shortcuts.isIdle()
+                && instance.timers.isEmpty() && ((List<?>) instance.contacts.get(null)).isEmpty();
+    }
+
+    static boolean[] reloadState() {
+        return instance == null ? null : new boolean[] {instance.filterActive, instance.mouseEnabled};
+    }
+
+    static void uninstall() {
+        if (instance == null) return;
+        synchronized (instance.lock) {
+            MouseIdleHook old = instance;
+            old.disposed = true;
+            old.installed = false;
+            if (old.receiver != null) old.context.unregisterReceiver(old.receiver);
+            if (old.preferences != null && old.listener != null) {
+                old.preferences.unregisterOnSharedPreferenceChangeListener(old.listener);
+            }
+            old.main.removeCallbacksAndMessages(null);
+            old.forceReset = null;
+            old.held = null;
+            old.timers.clear();
+            old.shortcuts.clear();
+            instance = null;
+        }
     }
 
     private void readSettings() {
@@ -469,7 +532,12 @@ final class MouseIdleHook {
     }
 
     private void intercept(Method method, XposedInterface.Hooker hooker) {
-        xposed.hook(method).setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(hooker);
+        xposed.hook(method).setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE).intercept(chain -> {
+            synchronized (lock) {
+                if (!disposed) return hooker.intercept(chain);
+            }
+            return chain.proceed();
+        });
     }
 
     private static Field singleton(Class<?> type) throws ReflectiveOperationException {

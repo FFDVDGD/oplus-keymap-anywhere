@@ -129,6 +129,27 @@ public class DirectionalWheelTest {
         assertPosition(nativeReplacement, 700, 900);
     }
 
+    @Test
+    public void reloadRequiresReleasedKeysEvenWithoutAnActiveTouch() throws Exception {
+        Touches touches = new Touches();
+        Clock clock = new Clock();
+        DirectionalWheel wheel = wheel(-2000, new Point(100, 200), touches, clock, 650);
+        assertTrue(wheel.isIdle());
+        wheel.down(new Key(59, CENTER, new Point(100, 200)));
+        assertTrue(touches.active.isEmpty());
+        assertFalse(wheel.isIdle());
+        wheel.up(CENTER);
+        assertTrue(wheel.isIdle());
+
+        wheel.down(new Key(32, RIGHT, new Point(160, 200)));
+        assertFalse(wheel.isIdle());
+        clock.drain();
+        assertFalse(wheel.isIdle());
+        wheel.up(RIGHT);
+        assertTrue(wheel.isIdle());
+        assertTrue(touches.active.isEmpty());
+    }
+
     private static DirectionalWheel wheel(int pointer, Point center, Touches touches,
             Clock clock, float fastOffset) {
         return new DirectionalWheel(pointer, center, fastOffset, touches, clock, clock);
